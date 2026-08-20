@@ -15,7 +15,7 @@
             <h1 class="text-xl font-bold flex items-center gap-2">
                 🎬 ระบบสั่งยืมฟิล์มระหว่างโรงงาน
             </h1>
-            <span class="bg-indigo-800 text-xs px-3 py-1 rounded-full border border-indigo-500">v2.2 (Real-time Sync)</span>
+            <span class="bg-indigo-800 text-xs px-3 py-1 rounded-full border border-indigo-500">v2.3 (Real-time Sync & Return)</span>
         </div>
     </header>
 
@@ -115,11 +115,14 @@
 
         <!-- ฝั่งขวา: รายการออเดอร์ทั้งหมด -->
         <section class="lg:col-span-7 bg-white p-6 rounded-xl shadow-md border border-slate-200">
-            <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 mb-4 border-b pb-3">
                 <h2 class="text-lg font-bold text-indigo-900">📋 รายการออเดอร์ยืมฟิล์ม</h2>
-                <div class="flex items-center gap-2">
-                    <span id="syncStatus" class="text-[10px] text-slate-400">กำลังเชื่อมต่อ...</span>
-                    <button onclick="fetchOrders()" class="text-xs text-indigo-600 hover:underline font-semibold">🔄 ดึงข้อมูลใหม่</button>
+                
+                <!-- ช่องค้นหา และ ปุ่ม Refresh -->
+                <div class="flex items-center gap-2 w-full md:w-auto">
+                    <input type="text" id="searchInput" onkeyup="filterOrders()" placeholder="🔍 ค้นหา Size, Job, Process..." class="p-1.5 px-3 text-xs border rounded-lg bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none w-full md:w-48">
+                    <span id="syncStatus" class="text-[10px] text-slate-400 whitespace-nowrap">กำลังเชื่อมต่อ...</span>
+                    <button onclick="fetchOrders()" class="text-xs text-indigo-600 hover:underline font-semibold whitespace-nowrap">🔄 ดึงข้อมูลใหม่</button>
                 </div>
             </div>
 
@@ -298,19 +301,37 @@
             }
         }
 
+        function filterOrders() {
+            renderTable();
+        }
+
         function renderTable() {
             const tbody = document.getElementById('orderTableBody');
             const emptyMsg = document.getElementById('emptyMessage');
+            const searchInput = document.getElementById('searchInput').value.toLowerCase().trim();
             tbody.innerHTML = '';
 
             if (!orders || orders.length === 0) {
                 emptyMsg.classList.remove('hidden');
                 return;
+            }
+
+            // กรองข้อมูลตามช่องค้นหา
+            const filteredOrders = orders.filter(order => {
+                const searchText = `${order.borrower} ${order.lender} ${order.processStep} ${order.filmSize} ${order.filmPercentage} ${order.jobValue} ${order.filmRank} ${order.note} ${order.status}`.toLowerCase();
+                return searchText.includes(searchInput);
+            });
+
+            if (filteredOrders.length === 0) {
+                emptyMsg.innerText = 'ไม่พบข้อมูลที่ตรงกับคำค้นหา';
+                emptyMsg.classList.remove('hidden');
+                return;
             } else {
+                emptyMsg.innerText = 'ยังไม่มีข้อมูลการยืมฟิล์มในขณะนี้';
                 emptyMsg.classList.add('hidden');
             }
 
-            orders.forEach(order => {
+            filteredOrders.forEach(order => {
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-slate-50 transition';
 
@@ -321,6 +342,8 @@
                     statusBadge = `<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-semibold">อนุมัติแล้ว</span>`;
                 } else if(order.status === 'COMPLETED') {
                     statusBadge = `<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-semibold">ได้รับแล้ว</span>`;
+                } else if(order.status === 'RETURNED') {
+                    statusBadge = `<span class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-semibold">ส่งคืนแล้ว</span>`;
                 }
 
                 tr.innerHTML = `
@@ -344,6 +367,8 @@
                                 `<button onclick="updateStatus('${order.id}', 'APPROVED')" class="bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700 text-[10px]">อนุมัติ</button>` : ''}
                             ${order.status === 'APPROVED' ? 
                                 `<button onclick="updateStatus('${order.id}', 'COMPLETED')" class="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700 text-[10px]">รับของแล้ว</button>` : ''}
+                            ${order.status === 'COMPLETED' ? 
+                                `<button onclick="updateStatus('${order.id}', 'RETURNED')" class="bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700 text-[10px]">🔄 ส่งคืนฟิล์ม</button>` : ''}
                             <button onclick="deleteOrder('${order.id}')" class="text-red-400 hover:text-red-600 px-1 py-1 text-[10px]">ลบ</button>
                         </div>
                     </td>
