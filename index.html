@@ -243,13 +243,10 @@
             submitBtn.disabled = true;
             submitBtn.innerText = 'กำลังส่งข้อมูล...';
 
-            const now = new Date().toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' });
-
             for (const item of cart) {
                 const payload = {
                     action: 'createOrder',
                     ...item,
-                    createdAt: now,
                     status: 'PENDING'
                 };
 
@@ -283,6 +280,23 @@
                 fetchOrders();
             } catch (error) {
                 console.error('Error updating status:', error);
+            }
+        }
+
+        // ฟังก์ชันใหม่: ส่งคืนฟิล์ม (เรียก action: 'returnOrder')
+        async function returnOrder(id) {
+            if (confirm('ยืนยันการส่งคืนฟิล์มใช่หรือไม่?')) {
+                try {
+                    await fetch(SCRIPT_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ action: 'returnOrder', id: id })
+                    });
+                    alert('บันทึกการส่งคืนเรียบร้อยแล้ว');
+                    fetchOrders();
+                } catch (error) {
+                    console.error('Error returning order:', error);
+                }
             }
         }
 
@@ -347,7 +361,11 @@
                 }
 
                 tr.innerHTML = `
-                    <td class="p-2 text-slate-500 whitespace-nowrap">${order.createdAt}</td>
+                    <td class="p-2 text-slate-500 whitespace-nowrap">
+                        <div>${order.createdAt}</div>
+                        ${order.status === 'RETURNED' && order.returnedAt && order.returnedAt !== '-' ? 
+                            `<div class="text-[10px] text-purple-600 font-semibold mt-0.5">คืนเมื่อ: ${order.returnedAt}</div>` : ''}
+                    </td>
                     <td class="p-2 font-medium">
                         <span class="text-indigo-600">${order.borrower}</span> 
                         <span class="text-slate-400">⬅</span> 
@@ -368,7 +386,7 @@
                             ${order.status === 'APPROVED' ? 
                                 `<button onclick="updateStatus('${order.id}', 'COMPLETED')" class="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700 text-[10px]">รับของแล้ว</button>` : ''}
                             ${order.status === 'COMPLETED' ? 
-                                `<button onclick="updateStatus('${order.id}', 'RETURNED')" class="bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700 text-[10px]">🔄 ส่งคืนฟิล์ม</button>` : ''}
+                                `<button onclick="returnOrder('${order.id}')" class="bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700 text-[10px]">🔄 ส่งคืนฟิล์ม</button>` : ''}
                             <button onclick="deleteOrder('${order.id}')" class="text-red-400 hover:text-red-600 px-1 py-1 text-[10px]">ลบ</button>
                         </div>
                     </td>
