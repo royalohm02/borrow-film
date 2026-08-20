@@ -15,7 +15,7 @@
             <h1 class="text-xl font-bold flex items-center gap-2">
                 🎬 ระบบสั่งยืมฟิล์มระหว่างโรงงาน
             </h1>
-            <span class="bg-indigo-800 text-xs px-3 py-1 rounded-full border border-indigo-500">v2.1 (With Process)</span>
+            <span class="bg-indigo-800 text-xs px-3 py-1 rounded-full border border-indigo-500">v2.2 (Real-time Sync)</span>
         </div>
     </header>
 
@@ -117,7 +117,10 @@
         <section class="lg:col-span-7 bg-white p-6 rounded-xl shadow-md border border-slate-200">
             <div class="flex justify-between items-center mb-4 border-b pb-2">
                 <h2 class="text-lg font-bold text-indigo-900">📋 รายการออเดอร์ยืมฟิล์ม</h2>
-                <button onclick="clearAllData()" class="text-xs text-red-500 hover:underline">ล้างข้อมูลทั้งหมด</button>
+                <div class="flex items-center gap-2">
+                    <span id="syncStatus" class="text-[10px] text-slate-400">กำลังเชื่อมต่อ...</span>
+                    <button onclick="fetchOrders()" class="text-xs text-indigo-600 hover:underline font-semibold">🔄 ดึงข้อมูลใหม่</button>
+                </div>
             </div>
 
             <div class="overflow-x-auto">
@@ -147,9 +150,24 @@
         const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwO7htrn1Wq_yrR2f3TMxjPUxu0J_VZNcw8_0rf9NDR3WHe2JWJdQuwxup5jpVzSbye/exec';
 
         let cart = [];
-        let orders = JSON.parse(localStorage.getItem('film_borrow_orders')) || [];
+        let orders = [];
 
-        renderTable();
+        // โหลดข้อมูลครั้งแรก และดึงข้อมูลใหม่อัตโนมัติทุกๆ 10 วินาที
+        fetchOrders();
+        setInterval(fetchOrders, 10000);
+
+        async function fetchOrders() {
+            const syncStatus = document.getElementById('syncStatus');
+            try {
+                const response = await fetch(SCRIPT_URL);
+                orders = await response.json();
+                renderTable();
+                syncStatus.innerText = 'อัปเดตแล้ว: ' + new Date().toLocaleTimeString('th-TH');
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                syncStatus.innerText = 'โหลดไม่สำเร็จ';
+            }
+        }
 
         function addItemToCart(e) {
             e.preventDefault();
@@ -163,7 +181,7 @@
             }
 
             const item = {
-                id: Date.now() + Math.random(),
+                id: 'ORD-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
                 borrower: borrower,
                 lender: lender,
                 processStep: document.getElementById('processStep').value,
@@ -208,7 +226,7 @@
                         <span class="font-bold text-slate-700">${index + 1}. Size: ${item.filmSize}</span> (%:${item.filmPercentage}, Job:${item.jobValue}, Rank:${item.filmRank})
                         <span class="font-bold text-indigo-600">${item.quantity} แผ่น</span>
                     </div>
-                    <button onclick="removeFromCart(${item.id})" class="text-red-500 font-bold px-1">✕</button>
+                    <button onclick="removeFromCart('${item.id}')" class="text-red-500 font-bold px-1">✕</button>
                 `;
                 cartList.appendChild(div);
             });
@@ -225,7 +243,8 @@
             const now = new Date().toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' });
 
             for (const item of cart) {
-                const newOrder = {
+                const payload = {
+                    action: 'createOrder',
                     ...item,
                     createdAt: now,
                     status: 'PENDING'
@@ -235,36 +254,47 @@
                     await fetch(SCRIPT_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        body: JSON.stringify(newOrder)
+                        body: JSON.stringify(payload)
                     });
                 } catch (error) {
-                    console.error('Error:', error);
+                    console.error('Error submitting order:', error);
                 }
-
-                orders.unshift(newOrder);
             }
 
             alert(`บันทึกและส่งข้อมูลเรียบร้อยแล้วทั้งหมด ${cart.length} รายการ!`);
             cart = [];
             renderCart();
-            saveData();
-            renderTable();
+            fetchOrders();
 
             submitBtn.disabled = false;
             submitBtn.innerText = originalText;
         }
 
-        function updateStatus(id, newStatus) {
-            orders = orders.map(item => item.id === id ? { ...item, status: newStatus } : item);
-            saveData();
-            renderTable();
+        async function updateStatus(id, newStatus) {
+            try {
+                await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'updateStatus', id: id, status: newStatus })
+                });
+                fetchOrders();
+            } catch (error) {
+                console.error('Error updating status:', error);
+            }
         }
 
-        function deleteOrder(id) {
+        async function deleteOrder(id) {
             if(confirm('คุณต้องการลบรายการนี้ใช่หรือไม่?')) {
-                orders = orders.filter(item => item.id !== id);
-                saveData();
-                renderTable();
+                try {
+                    await fetch(SCRIPT_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ action: 'deleteOrder', id: id })
+                    });
+                    fetchOrders();
+                } catch (error) {
+                    console.error('Error deleting order:', error);
+                }
             }
         }
 
@@ -273,7 +303,7 @@
             const emptyMsg = document.getElementById('emptyMessage');
             tbody.innerHTML = '';
 
-            if (orders.length === 0) {
+            if (!orders || orders.length === 0) {
                 emptyMsg.classList.remove('hidden');
                 return;
             } else {
@@ -311,27 +341,15 @@
                     <td class="p-2 text-center whitespace-nowrap">
                         <div class="flex items-center justify-center gap-1">
                             ${order.status === 'PENDING' ? 
-                                `<button onclick="updateStatus(${order.id}, 'APPROVED')" class="bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700 text-[10px]">อนุมัติ</button>` : ''}
+                                `<button onclick="updateStatus('${order.id}', 'APPROVED')" class="bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700 text-[10px]">อนุมัติ</button>` : ''}
                             ${order.status === 'APPROVED' ? 
-                                `<button onclick="updateStatus(${order.id}, 'COMPLETED')" class="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700 text-[10px]">รับของแล้ว</button>` : ''}
-                            <button onclick="deleteOrder(${order.id})" class="text-red-400 hover:text-red-600 px-1 py-1 text-[10px]">ลบ</button>
+                                `<button onclick="updateStatus('${order.id}', 'COMPLETED')" class="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700 text-[10px]">รับของแล้ว</button>` : ''}
+                            <button onclick="deleteOrder('${order.id}')" class="text-red-400 hover:text-red-600 px-1 py-1 text-[10px]">ลบ</button>
                         </div>
                     </td>
                 `;
                 tbody.appendChild(tr);
             });
-        }
-
-        function saveData() {
-            localStorage.setItem('film_borrow_orders', JSON.stringify(orders));
-        }
-
-        function clearAllData() {
-            if(confirm('คุณแน่ใจหรือไม่ที่จะล้างประวัติการยืมทั้งหมด?')) {
-                localStorage.removeItem('film_borrow_orders');
-                orders = [];
-                renderTable();
-            }
         }
     </script>
 </body>
