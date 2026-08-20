@@ -15,7 +15,7 @@
             <h1 class="text-xl font-bold flex items-center gap-2">
                 🎬 ระบบสั่งยืมฟิล์มระหว่างโรงงาน
             </h1>
-            <span class="bg-indigo-800 text-xs px-3 py-1 rounded-full border border-indigo-500">v2.3 (Real-time Sync & Return)</span>
+            <span class="bg-indigo-800 text-xs px-3 py-1 rounded-full border border-indigo-500">v2.3 (Real-time Sync & Instant Return)</span>
         </div>
     </header>
 
@@ -155,7 +155,6 @@
         let cart = [];
         let orders = [];
 
-        // โหลดข้อมูลครั้งแรก และดึงข้อมูลใหม่อัตโนมัติทุกๆ 10 วินาที
         fetchOrders();
         setInterval(fetchOrders, 10000);
 
@@ -283,17 +282,32 @@
             }
         }
 
-        // ฟังก์ชันใหม่: ส่งคืนฟิล์ม (เรียก action: 'returnOrder')
+        // ฟังก์ชันกดส่งคืนฟิล์ม: อัปเดตเวลาปัจจุบันทันทีบนตาราง + ส่งข้อมูลไป Sheets/LINE
         async function returnOrder(id) {
             if (confirm('ยืนยันการส่งคืนฟิล์มใช่หรือไม่?')) {
+                // 1. ดึงวันที่และเวลาปัจจุบันฝั่งโทรศัพท์/เครื่องผู้ใช้
+                const now = new Date();
+                const nowFormatted = now.toLocaleDateString('th-TH') + ' ' + now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+
+                // 2. อัปเดตข้อมูลบนหน้าจอทันที ไม่ต้องรอเบื้องหลัง
+                const targetOrder = orders.find(o => o.id === id);
+                if (targetOrder) {
+                    targetOrder.status = 'RETURNED';
+                    targetOrder.returnedAt = nowFormatted;
+                    renderTable(); // แสดงผลใหม่ทันที
+                }
+
+                // 3. ส่งข้อมูลไปอัปเดตที่ Google Sheets / LINE ในเบื้องหลัง
                 try {
                     await fetch(SCRIPT_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        body: JSON.stringify({ action: 'returnOrder', id: id })
+                        body: JSON.stringify({ 
+                            action: 'returnOrder', 
+                            id: id,
+                            returnedAt: nowFormatted // ส่งวันที่เวลาที่สร้างจากโทรศัพท์ไปเก็บด้วย
+                        })
                     });
-                    alert('บันทึกการส่งคืนเรียบร้อยแล้ว');
-                    fetchOrders();
                 } catch (error) {
                     console.error('Error returning order:', error);
                 }
@@ -319,6 +333,19 @@
             renderTable();
         }
 
+        // ฟังก์ชันจัดรูปแบบวันที่ให้อ่านง่าย
+        function formatDateDisplay(dateStr) {
+            if (!dateStr || dateStr === '-') return '-';
+            // หากวันที่ส่งมาจาก Sheets มีอักษร T (ISO Date) ให้แปลงเป็นเวลาไทยอ่านง่าย
+            if (dateStr.includes('T')) {
+                const d = new Date(dateStr);
+                if (!isNaN(d.getTime())) {
+                    return d.toLocaleDateString('th-TH') + ' ' + d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+                }
+            }
+            return dateStr;
+        }
+
         function renderTable() {
             const tbody = document.getElementById('orderTableBody');
             const emptyMsg = document.getElementById('emptyMessage');
@@ -330,7 +357,6 @@
                 return;
             }
 
-            // กรองข้อมูลตามช่องค้นหา
             const filteredOrders = orders.filter(order => {
                 const searchText = `${order.borrower} ${order.lender} ${order.processStep} ${order.filmSize} ${order.filmPercentage} ${order.jobValue} ${order.filmRank} ${order.note} ${order.status}`.toLowerCase();
                 return searchText.includes(searchInput);
@@ -360,11 +386,14 @@
                     statusBadge = `<span class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-semibold">ส่งคืนแล้ว</span>`;
                 }
 
+                const createdTimeDisplay = formatDateDisplay(order.createdAt);
+                const returnedTimeDisplay = formatDateDisplay(order.returnedAt);
+
                 tr.innerHTML = `
                     <td class="p-2 text-slate-500 whitespace-nowrap">
-                        <div>${order.createdAt}</div>
-                        ${order.status === 'RETURNED' && order.returnedAt && order.returnedAt !== '-' ? 
-                            `<div class="text-[10px] text-purple-600 font-semibold mt-0.5">คืนเมื่อ: ${order.returnedAt}</div>` : ''}
+                        <div class="text-[11px] font-medium text-slate-700">${createdTimeDisplay}</div>
+                        ${order.status === 'RETURNED' && returnedTimeDisplay !== '-' ? 
+                            `<div class="text-[10px] text-purple-600 font-bold mt-0.5 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 inline-block">↩ คืนเมื่อ: ${returnedTimeDisplay}</div>` : ''}
                     </td>
                     <td class="p-2 font-medium">
                         <span class="text-indigo-600">${order.borrower}</span> 
